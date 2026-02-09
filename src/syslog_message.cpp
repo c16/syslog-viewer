@@ -1,5 +1,6 @@
 #include "syslog_message.h"
 
+#include <algorithm>
 #include <iomanip>
 #include <regex>
 #include <sstream>
@@ -90,14 +91,22 @@ int SyslogMessage::priority() const {
 }
 
 SyslogSeverity SyslogMessage::parse_severity(const std::string& str) {
-  if (str == "EMERG") return SyslogSeverity::EMERGENCY;
-  if (str == "ALERT") return SyslogSeverity::ALERT;
-  if (str == "CRIT") return SyslogSeverity::CRITICAL;
-  if (str == "ERROR") return SyslogSeverity::ERROR;
-  if (str == "WARN") return SyslogSeverity::WARNING;
-  if (str == "NOTICE") return SyslogSeverity::NOTICE;
-  if (str == "INFO") return SyslogSeverity::INFO;
-  if (str == "DEBUG") return SyslogSeverity::DEBUG;
+  // Normalize to uppercase for case-insensitive matching
+  std::string upper = str;
+  std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+
+  if (upper == "EMERG" || upper == "EMERGENCY")
+    return SyslogSeverity::EMERGENCY;
+  if (upper == "ALERT") return SyslogSeverity::ALERT;
+  if (upper == "CRIT" || upper == "CRITICAL")
+    return SyslogSeverity::CRITICAL;
+  if (upper == "ERR" || upper == "ERROR") return SyslogSeverity::ERROR;
+  if (upper == "WARN" || upper == "WARNING")
+    return SyslogSeverity::WARNING;
+  if (upper == "NOTICE") return SyslogSeverity::NOTICE;
+  if (upper == "INFO" || upper == "INFORMATION")
+    return SyslogSeverity::INFO;
+  if (upper == "DEBUG") return SyslogSeverity::DEBUG;
   return SyslogSeverity::INFO;
 }
 
@@ -202,6 +211,12 @@ SyslogMessage SyslogMessage::parse_dash_log_line(const std::string& line) {
   // After "---", extract severity and message
   // Skip the " ---" (4 chars)
   std::string after_dashes = line.substr(dash_pos + 4);
+
+  // Trim leading whitespace (handles "--- ERROR" with space after dashes)
+  auto first_non_space = after_dashes.find_first_not_of(' ');
+  if (first_non_space != std::string::npos) {
+    after_dashes = after_dashes.substr(first_non_space);
+  }
 
   // Severity is the next token, message is the rest
   auto space_pos = after_dashes.find(' ');

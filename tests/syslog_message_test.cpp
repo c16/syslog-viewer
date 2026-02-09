@@ -115,6 +115,31 @@ TEST(ParseSeverity, AllKnownValues) {
   EXPECT_EQ(SyslogMessage::parse_severity("DEBUG"), SyslogSeverity::DEBUG);
 }
 
+TEST(ParseSeverity, CaseInsensitive) {
+  EXPECT_EQ(SyslogMessage::parse_severity("error"), SyslogSeverity::ERROR);
+  EXPECT_EQ(SyslogMessage::parse_severity("Error"), SyslogSeverity::ERROR);
+  EXPECT_EQ(SyslogMessage::parse_severity("warn"), SyslogSeverity::WARNING);
+  EXPECT_EQ(SyslogMessage::parse_severity("Warning"), SyslogSeverity::WARNING);
+  EXPECT_EQ(SyslogMessage::parse_severity("info"), SyslogSeverity::INFO);
+  EXPECT_EQ(SyslogMessage::parse_severity("debug"), SyslogSeverity::DEBUG);
+  EXPECT_EQ(SyslogMessage::parse_severity("crit"), SyslogSeverity::CRITICAL);
+  EXPECT_EQ(SyslogMessage::parse_severity("alert"), SyslogSeverity::ALERT);
+  EXPECT_EQ(SyslogMessage::parse_severity("emerg"), SyslogSeverity::EMERGENCY);
+  EXPECT_EQ(SyslogMessage::parse_severity("notice"), SyslogSeverity::NOTICE);
+}
+
+TEST(ParseSeverity, LongForms) {
+  EXPECT_EQ(SyslogMessage::parse_severity("EMERGENCY"), SyslogSeverity::EMERGENCY);
+  EXPECT_EQ(SyslogMessage::parse_severity("CRITICAL"), SyslogSeverity::CRITICAL);
+  EXPECT_EQ(SyslogMessage::parse_severity("WARNING"), SyslogSeverity::WARNING);
+  EXPECT_EQ(SyslogMessage::parse_severity("INFORMATION"), SyslogSeverity::INFO);
+  EXPECT_EQ(SyslogMessage::parse_severity("ERR"), SyslogSeverity::ERROR);
+  // Case-insensitive long forms
+  EXPECT_EQ(SyslogMessage::parse_severity("Emergency"), SyslogSeverity::EMERGENCY);
+  EXPECT_EQ(SyslogMessage::parse_severity("Critical"), SyslogSeverity::CRITICAL);
+  EXPECT_EQ(SyslogMessage::parse_severity("Warning"), SyslogSeverity::WARNING);
+}
+
 TEST(ParseSeverity, UnknownDefaultsToInfo) {
   EXPECT_EQ(SyslogMessage::parse_severity("GARBAGE"), SyslogSeverity::INFO);
   EXPECT_EQ(SyslogMessage::parse_severity(""), SyslogSeverity::INFO);
@@ -295,6 +320,39 @@ TEST(ParseDashLogLine, MessageWithSpaces) {
 
   EXPECT_EQ(msg.severity, SyslogSeverity::DEBUG);
   EXPECT_EQ(msg.message, "GET /api/users?page=1 HTTP/1.1 200 OK");
+}
+
+TEST(ParseDashLogLine, CaseInsensitiveSeverity) {
+  auto msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-01 00:00:00 ---error connection lost");
+  EXPECT_EQ(msg.severity, SyslogSeverity::ERROR);
+  EXPECT_EQ(msg.message, "connection lost");
+
+  msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-01 00:00:00 ---Warning disk almost full");
+  EXPECT_EQ(msg.severity, SyslogSeverity::WARNING);
+  EXPECT_EQ(msg.message, "disk almost full");
+}
+
+TEST(ParseDashLogLine, LongFormSeverity) {
+  auto msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-01 00:00:00 ---CRITICAL system failure");
+  EXPECT_EQ(msg.severity, SyslogSeverity::CRITICAL);
+
+  msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-01 00:00:00 ---WARNING low memory");
+  EXPECT_EQ(msg.severity, SyslogSeverity::WARNING);
+
+  msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-01 00:00:00 ---EMERGENCY kernel panic");
+  EXPECT_EQ(msg.severity, SyslogSeverity::EMERGENCY);
+}
+
+TEST(ParseDashLogLine, SpaceAfterDashes) {
+  auto msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-01 00:00:00 --- ERROR connection timeout");
+  EXPECT_EQ(msg.severity, SyslogSeverity::ERROR);
+  EXPECT_EQ(msg.message, "connection timeout");
 }
 
 TEST(ParseDashLogLine, NoDashDelimiter) {
