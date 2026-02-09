@@ -26,6 +26,7 @@ A GTKmm-based application for displaying and filtering incoming syslog UDP messa
 ### Additional Features
 - **Configurable Port**: Change the listening port (default: 514)
 - **Message Export**: Export messages to CSV format
+- **Message Import**: Import syslog messages from files (raw syslog, pipe-delimited logs, or CSV)
 - **File Logging**: Automatically log all incoming messages to a file in real-time
 - **Clear History**: Clear all messages with one click
 - **Auto-scroll**: Automatically scrolls to newest messages
@@ -143,6 +144,25 @@ sudo ./build/syslog_viewer
 4. **Stop Listening**: Click "Stop" to stop receiving messages
 5. **Clear Messages**: Click "Clear" to remove all messages from view
 6. **Export**: Click "Export" to save messages to a CSV file
+7. **Import**: Click "Import" to load messages from a file
+
+### Importing Messages
+
+The application can import syslog messages from files in multiple formats:
+
+1. **Click "Import"** to open the file chooser dialog
+2. **Select a file** — supported formats are auto-detected:
+   - **Pipe-delimited log files**: The app's own log format (`Timestamp|Severity|Facility|Source IP|Hostname|Application|Message`)
+   - **CSV files**: The app's own CSV export format, with quoted message fields
+   - **Raw syslog**: Standard RFC3164/RFC5424 syslog lines (one message per line)
+3. **Messages are added** to the existing view (they do not replace current messages)
+
+**Notes:**
+- Comment lines (starting with `#`) and empty lines are skipped automatically
+- CSV headers are detected and skipped
+- Imported raw syslog messages have their source IP set to "imported"
+- All imported messages are subject to current filter settings
+- A summary dialog shows how many messages were imported
 
 ### File Logging
 
@@ -298,6 +318,7 @@ int get_port() const;
 // Message management
 void clear_messages();
 void export_to_file(const std::string& filename);
+void import_from_file(const std::string& filename);
 
 // File logging
 void enable_file_logging(bool enabled);
@@ -335,6 +356,23 @@ void set_port(int port);  // Only when stopped
 - `process_id`: Process ID (if available)
 - `message`: Message content
 - `source_ip`: Source IP address
+
+**Static Methods:**
+
+```cpp
+// Parse raw RFC3164/RFC5424 syslog message
+static SyslogMessage parse(const std::string& raw_message, const std::string& source_ip);
+
+// Parse pipe-delimited log line
+static SyslogMessage parse_log_line(const std::string& line);
+
+// Parse severity/facility strings back to enums
+static SyslogSeverity parse_severity(const std::string& str);
+static SyslogFacility parse_facility(const std::string& str);
+
+// Parse timestamp string (YYYY-MM-DD HH:MM:SS)
+static std::chrono::system_clock::time_point parse_timestamp(const std::string& str);
+```
 
 ## Troubleshooting
 
