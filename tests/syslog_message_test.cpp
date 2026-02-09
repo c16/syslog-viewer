@@ -268,22 +268,27 @@ TEST(ParseSimple, NoPriorityNoRFC) {
 }
 
 // --- parse_dash_log_line (dash-delimited) ---
+// Format: "YYYY-MM-DD HH:MM:SS hostname app - - - SEVERITY [message]"
 
 TEST(ParseDashLogLine, BasicErrorLine) {
   auto msg = SyslogMessage::parse_dash_log_line(
-      "2026-01-11 15:30:45 ---ERROR Connection refused");
+      "2026-01-11 15:30:45 buildroot ssb-mk2 - - - ERROR");
 
   EXPECT_EQ(msg.severity, SyslogSeverity::ERROR);
-  EXPECT_EQ(msg.message, "Connection refused");
+  EXPECT_EQ(msg.hostname, "buildroot");
+  EXPECT_EQ(msg.application, "ssb-mk2");
   EXPECT_EQ(msg.timestamp_string(), "2026-01-11 15:30:45");
   EXPECT_EQ(msg.facility, SyslogFacility::USER);
+  EXPECT_TRUE(msg.message.empty());
 }
 
-TEST(ParseDashLogLine, BasicInfoLine) {
+TEST(ParseDashLogLine, WithMessage) {
   auto msg = SyslogMessage::parse_dash_log_line(
-      "2026-03-20 08:00:00 ---INFO Server started successfully");
+      "2026-03-20 08:00:00 webserver nginx - - - INFO Server started successfully");
 
   EXPECT_EQ(msg.severity, SyslogSeverity::INFO);
+  EXPECT_EQ(msg.hostname, "webserver");
+  EXPECT_EQ(msg.application, "nginx");
   EXPECT_EQ(msg.message, "Server started successfully");
   EXPECT_EQ(msg.timestamp_string(), "2026-03-20 08:00:00");
 }
@@ -291,9 +296,11 @@ TEST(ParseDashLogLine, BasicInfoLine) {
 TEST(ParseDashLogLine, AllSeverities) {
   auto test = [](const std::string& sev, SyslogSeverity expected) {
     auto msg = SyslogMessage::parse_dash_log_line(
-        "2026-01-01 00:00:00 ---" + sev + " test message");
+        "2026-01-01 00:00:00 host app - - - " + sev + " test message");
     EXPECT_EQ(msg.severity, expected) << "Failed for severity: " << sev;
     EXPECT_EQ(msg.message, "test message");
+    EXPECT_EQ(msg.hostname, "host");
+    EXPECT_EQ(msg.application, "app");
   };
 
   test("EMERG", SyslogSeverity::EMERGENCY);
@@ -308,15 +315,17 @@ TEST(ParseDashLogLine, AllSeverities) {
 
 TEST(ParseDashLogLine, SeverityOnly) {
   auto msg = SyslogMessage::parse_dash_log_line(
-      "2026-01-01 00:00:00 ---WARN");
+      "2026-01-01 00:00:00 myhost myapp - - - WARN");
 
   EXPECT_EQ(msg.severity, SyslogSeverity::WARNING);
+  EXPECT_EQ(msg.hostname, "myhost");
+  EXPECT_EQ(msg.application, "myapp");
   EXPECT_TRUE(msg.message.empty());
 }
 
 TEST(ParseDashLogLine, MessageWithSpaces) {
   auto msg = SyslogMessage::parse_dash_log_line(
-      "2026-06-15 12:30:00 ---DEBUG GET /api/users?page=1 HTTP/1.1 200 OK");
+      "2026-06-15 12:30:00 gateway proxy - - - DEBUG GET /api/users?page=1 HTTP/1.1 200 OK");
 
   EXPECT_EQ(msg.severity, SyslogSeverity::DEBUG);
   EXPECT_EQ(msg.message, "GET /api/users?page=1 HTTP/1.1 200 OK");
@@ -324,35 +333,28 @@ TEST(ParseDashLogLine, MessageWithSpaces) {
 
 TEST(ParseDashLogLine, CaseInsensitiveSeverity) {
   auto msg = SyslogMessage::parse_dash_log_line(
-      "2026-01-01 00:00:00 ---error connection lost");
+      "2026-01-01 00:00:00 host app - - - error connection lost");
   EXPECT_EQ(msg.severity, SyslogSeverity::ERROR);
   EXPECT_EQ(msg.message, "connection lost");
 
   msg = SyslogMessage::parse_dash_log_line(
-      "2026-01-01 00:00:00 ---Warning disk almost full");
+      "2026-01-01 00:00:00 host app - - - Warning disk almost full");
   EXPECT_EQ(msg.severity, SyslogSeverity::WARNING);
   EXPECT_EQ(msg.message, "disk almost full");
 }
 
 TEST(ParseDashLogLine, LongFormSeverity) {
   auto msg = SyslogMessage::parse_dash_log_line(
-      "2026-01-01 00:00:00 ---CRITICAL system failure");
+      "2026-01-01 00:00:00 host app - - - CRITICAL system failure");
   EXPECT_EQ(msg.severity, SyslogSeverity::CRITICAL);
 
   msg = SyslogMessage::parse_dash_log_line(
-      "2026-01-01 00:00:00 ---WARNING low memory");
+      "2026-01-01 00:00:00 host app - - - WARNING low memory");
   EXPECT_EQ(msg.severity, SyslogSeverity::WARNING);
 
   msg = SyslogMessage::parse_dash_log_line(
-      "2026-01-01 00:00:00 ---EMERGENCY kernel panic");
+      "2026-01-01 00:00:00 host app - - - EMERGENCY kernel panic");
   EXPECT_EQ(msg.severity, SyslogSeverity::EMERGENCY);
-}
-
-TEST(ParseDashLogLine, SpaceAfterDashes) {
-  auto msg = SyslogMessage::parse_dash_log_line(
-      "2026-01-01 00:00:00 --- ERROR connection timeout");
-  EXPECT_EQ(msg.severity, SyslogSeverity::ERROR);
-  EXPECT_EQ(msg.message, "connection timeout");
 }
 
 TEST(ParseDashLogLine, NoDashDelimiter) {

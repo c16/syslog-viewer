@@ -196,36 +196,43 @@ SyslogMessage SyslogMessage::parse_dash_log_line(const std::string& line) {
   msg.severity = SyslogSeverity::INFO;
   msg.facility = SyslogFacility::USER;
 
-  // Expected format: "YYYY-MM-DD HH:MM:SS ---SEVERITY message text"
-  // Find the "---" delimiter
-  auto dash_pos = line.find(" ---");
-  if (dash_pos == std::string::npos) {
+  // Expected format: "YYYY-MM-DD HH:MM:SS hostname app - - - SEVERITY [message]"
+  // The " - - - " marker separates header fields from severity/message
+  auto marker_pos = line.find(" - - - ");
+  if (marker_pos == std::string::npos) {
     msg.message = line;
     return msg;
   }
 
-  // Parse timestamp (everything before " ---")
-  std::string ts_str = line.substr(0, dash_pos);
-  msg.timestamp = parse_timestamp(ts_str);
+  // Parse the part before " - - - ": "timestamp hostname app"
+  std::string before = line.substr(0, marker_pos);
 
-  // After "---", extract severity and message
-  // Skip the " ---" (4 chars)
-  std::string after_dashes = line.substr(dash_pos + 4);
+  // Timestamp is "YYYY-MM-DD HH:MM:SS" (19 chars)
+  if (before.size() >= 19) {
+    msg.timestamp = parse_timestamp(before.substr(0, 19));
 
-  // Trim leading whitespace (handles "--- ERROR" with space after dashes)
-  auto first_non_space = after_dashes.find_first_not_of(' ');
-  if (first_non_space != std::string::npos) {
-    after_dashes = after_dashes.substr(first_non_space);
+    // After the timestamp: "hostname app"
+    if (before.size() > 20) {
+      std::string after_ts = before.substr(20);
+      auto space_pos = after_ts.find(' ');
+      if (space_pos != std::string::npos) {
+        msg.hostname = after_ts.substr(0, space_pos);
+        msg.application = after_ts.substr(space_pos + 1);
+      } else {
+        msg.hostname = after_ts;
+      }
+    }
   }
 
-  // Severity is the next token, message is the rest
-  auto space_pos = after_dashes.find(' ');
+  // Parse the part after " - - - ": "SEVERITY [message]"
+  std::string after = line.substr(marker_pos + 7);  // skip " - - - "
+
+  auto space_pos = after.find(' ');
   if (space_pos != std::string::npos) {
-    msg.severity = parse_severity(after_dashes.substr(0, space_pos));
-    msg.message = after_dashes.substr(space_pos + 1);
+    msg.severity = parse_severity(after.substr(0, space_pos));
+    msg.message = after.substr(space_pos + 1);
   } else {
-    // Only severity, no message
-    msg.severity = parse_severity(after_dashes);
+    msg.severity = parse_severity(after);
   }
 
   return msg;

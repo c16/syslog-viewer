@@ -342,8 +342,8 @@ void SyslogDialog::import_from_file(const std::string& filename) {
     SyslogMessage msg;
 
     // Detect format by delimiter
-    if (line.find(" ---") != std::string::npos) {
-      // Dash-delimited format: "Timestamp ---SEVERITY message"
+    if (line.find(" - - - ") != std::string::npos) {
+      // Dash-delimited format: "Timestamp hostname app - - - SEVERITY [message]"
       msg = SyslogMessage::parse_dash_log_line(line);
     } else if (line.find('|') != std::string::npos) {
       // Pipe-delimited log format
