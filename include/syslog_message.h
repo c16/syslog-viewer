@@ -68,6 +68,9 @@ struct SyslogMessage {
   // Parse a pipe-delimited log line (Timestamp|Severity|Facility|Source IP|Hostname|Application|Message)
   static SyslogMessage parse_log_line(const std::string& line);
 
+  // Parse a dash-delimited log line (Timestamp ---SEVERITY message)
+  static SyslogMessage parse_dash_log_line(const std::string& line);
+
   // Parse severity string to enum
   static SyslogSeverity parse_severity(const std::string& str);
 

@@ -181,6 +181,41 @@ SyslogMessage SyslogMessage::parse_log_line(const std::string& line) {
   return msg;
 }
 
+SyslogMessage SyslogMessage::parse_dash_log_line(const std::string& line) {
+  SyslogMessage msg;
+  msg.timestamp = std::chrono::system_clock::now();
+  msg.severity = SyslogSeverity::INFO;
+  msg.facility = SyslogFacility::USER;
+
+  // Expected format: "YYYY-MM-DD HH:MM:SS ---SEVERITY message text"
+  // Find the "---" delimiter
+  auto dash_pos = line.find(" ---");
+  if (dash_pos == std::string::npos) {
+    msg.message = line;
+    return msg;
+  }
+
+  // Parse timestamp (everything before " ---")
+  std::string ts_str = line.substr(0, dash_pos);
+  msg.timestamp = parse_timestamp(ts_str);
+
+  // After "---", extract severity and message
+  // Skip the " ---" (4 chars)
+  std::string after_dashes = line.substr(dash_pos + 4);
+
+  // Severity is the next token, message is the rest
+  auto space_pos = after_dashes.find(' ');
+  if (space_pos != std::string::npos) {
+    msg.severity = parse_severity(after_dashes.substr(0, space_pos));
+    msg.message = after_dashes.substr(space_pos + 1);
+  } else {
+    // Only severity, no message
+    msg.severity = parse_severity(after_dashes);
+  }
+
+  return msg;
+}
+
 SyslogMessage SyslogMessage::parse(const std::string& raw_message,
                                    const std::string& source_ip) {
   SyslogMessage msg;

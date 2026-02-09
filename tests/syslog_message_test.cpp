@@ -242,6 +242,69 @@ TEST(ParseSimple, NoPriorityNoRFC) {
   EXPECT_EQ(msg.message, "just-a-single-word");
 }
 
+// --- parse_dash_log_line (dash-delimited) ---
+
+TEST(ParseDashLogLine, BasicErrorLine) {
+  auto msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-11 15:30:45 ---ERROR Connection refused");
+
+  EXPECT_EQ(msg.severity, SyslogSeverity::ERROR);
+  EXPECT_EQ(msg.message, "Connection refused");
+  EXPECT_EQ(msg.timestamp_string(), "2026-01-11 15:30:45");
+  EXPECT_EQ(msg.facility, SyslogFacility::USER);
+}
+
+TEST(ParseDashLogLine, BasicInfoLine) {
+  auto msg = SyslogMessage::parse_dash_log_line(
+      "2026-03-20 08:00:00 ---INFO Server started successfully");
+
+  EXPECT_EQ(msg.severity, SyslogSeverity::INFO);
+  EXPECT_EQ(msg.message, "Server started successfully");
+  EXPECT_EQ(msg.timestamp_string(), "2026-03-20 08:00:00");
+}
+
+TEST(ParseDashLogLine, AllSeverities) {
+  auto test = [](const std::string& sev, SyslogSeverity expected) {
+    auto msg = SyslogMessage::parse_dash_log_line(
+        "2026-01-01 00:00:00 ---" + sev + " test message");
+    EXPECT_EQ(msg.severity, expected) << "Failed for severity: " << sev;
+    EXPECT_EQ(msg.message, "test message");
+  };
+
+  test("EMERG", SyslogSeverity::EMERGENCY);
+  test("ALERT", SyslogSeverity::ALERT);
+  test("CRIT", SyslogSeverity::CRITICAL);
+  test("ERROR", SyslogSeverity::ERROR);
+  test("WARN", SyslogSeverity::WARNING);
+  test("NOTICE", SyslogSeverity::NOTICE);
+  test("INFO", SyslogSeverity::INFO);
+  test("DEBUG", SyslogSeverity::DEBUG);
+}
+
+TEST(ParseDashLogLine, SeverityOnly) {
+  auto msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-01 00:00:00 ---WARN");
+
+  EXPECT_EQ(msg.severity, SyslogSeverity::WARNING);
+  EXPECT_TRUE(msg.message.empty());
+}
+
+TEST(ParseDashLogLine, MessageWithSpaces) {
+  auto msg = SyslogMessage::parse_dash_log_line(
+      "2026-06-15 12:30:00 ---DEBUG GET /api/users?page=1 HTTP/1.1 200 OK");
+
+  EXPECT_EQ(msg.severity, SyslogSeverity::DEBUG);
+  EXPECT_EQ(msg.message, "GET /api/users?page=1 HTTP/1.1 200 OK");
+}
+
+TEST(ParseDashLogLine, NoDashDelimiter) {
+  auto msg = SyslogMessage::parse_dash_log_line("no dashes here at all");
+
+  // Falls back to storing whole line as message
+  EXPECT_EQ(msg.message, "no dashes here at all");
+  EXPECT_EQ(msg.severity, SyslogSeverity::INFO);
+}
+
 // --- parse_log_line (pipe-delimited) ---
 
 TEST(ParseLogLine, ValidLine) {

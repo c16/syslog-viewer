@@ -341,8 +341,12 @@ void SyslogDialog::import_from_file(const std::string& filename) {
 
     SyslogMessage msg;
 
-    // Detect format: pipe-delimited log format has '|' separators
-    if (line.find('|') != std::string::npos) {
+    // Detect format by delimiter
+    if (line.find(" ---") != std::string::npos) {
+      // Dash-delimited format: "Timestamp ---SEVERITY message"
+      msg = SyslogMessage::parse_dash_log_line(line);
+    } else if (line.find('|') != std::string::npos) {
+      // Pipe-delimited log format
       msg = SyslogMessage::parse_log_line(line);
     } else if (line.find(',') != std::string::npos && line[0] >= '0' &&
                line[0] <= '9') {
