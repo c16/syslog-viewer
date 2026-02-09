@@ -140,6 +140,16 @@ TEST(ParseSeverity, LongForms) {
   EXPECT_EQ(SyslogMessage::parse_severity("Warning"), SyslogSeverity::WARNING);
 }
 
+TEST(ParseSeverity, TrimsWhitespaceAndControlChars) {
+  EXPECT_EQ(SyslogMessage::parse_severity("ERROR\r"), SyslogSeverity::ERROR);
+  EXPECT_EQ(SyslogMessage::parse_severity("ERROR\n"), SyslogSeverity::ERROR);
+  EXPECT_EQ(SyslogMessage::parse_severity("ERROR "), SyslogSeverity::ERROR);
+  EXPECT_EQ(SyslogMessage::parse_severity(" ERROR"), SyslogSeverity::ERROR);
+  EXPECT_EQ(SyslogMessage::parse_severity(" ERROR "), SyslogSeverity::ERROR);
+  EXPECT_EQ(SyslogMessage::parse_severity("WARN\r\n"), SyslogSeverity::WARNING);
+  EXPECT_EQ(SyslogMessage::parse_severity("\tDEBUG\t"), SyslogSeverity::DEBUG);
+}
+
 TEST(ParseSeverity, UnknownDefaultsToInfo) {
   EXPECT_EQ(SyslogMessage::parse_severity("GARBAGE"), SyslogSeverity::INFO);
   EXPECT_EQ(SyslogMessage::parse_severity(""), SyslogSeverity::INFO);
@@ -355,6 +365,21 @@ TEST(ParseDashLogLine, LongFormSeverity) {
   msg = SyslogMessage::parse_dash_log_line(
       "2026-01-01 00:00:00 host app - - - EMERGENCY kernel panic");
   EXPECT_EQ(msg.severity, SyslogSeverity::EMERGENCY);
+}
+
+TEST(ParseDashLogLine, TrailingCarriageReturn) {
+  // Simulates Windows line endings where \r remains after getline
+  auto msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-11 15:30:45 buildroot ssb-mk2 - - - ERROR\r");
+  EXPECT_EQ(msg.severity, SyslogSeverity::ERROR);
+  EXPECT_EQ(msg.hostname, "buildroot");
+  EXPECT_EQ(msg.application, "ssb-mk2");
+}
+
+TEST(ParseDashLogLine, TrailingWhitespace) {
+  auto msg = SyslogMessage::parse_dash_log_line(
+      "2026-01-11 15:30:45 buildroot ssb-mk2 - - - WARN  ");
+  EXPECT_EQ(msg.severity, SyslogSeverity::WARNING);
 }
 
 TEST(ParseDashLogLine, NoDashDelimiter) {

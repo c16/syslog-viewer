@@ -91,8 +91,14 @@ int SyslogMessage::priority() const {
 }
 
 SyslogSeverity SyslogMessage::parse_severity(const std::string& str) {
-  // Normalize to uppercase for case-insensitive matching
+  // Trim whitespace and control characters, then normalize to uppercase
   std::string upper = str;
+  while (!upper.empty() && (unsigned char)upper.back() <= ' ') {
+    upper.pop_back();
+  }
+  while (!upper.empty() && (unsigned char)upper.front() <= ' ') {
+    upper.erase(upper.begin());
+  }
   std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
 
   if (upper == "EMERG" || upper == "EMERGENCY")

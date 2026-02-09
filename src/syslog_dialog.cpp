@@ -329,6 +329,13 @@ void SyslogDialog::import_from_file(const std::string& filename) {
   std::string line;
 
   while (std::getline(file, line)) {
+    // Strip trailing \r, \n, spaces, tabs (handles Windows line endings)
+    while (!line.empty() &&
+           (line.back() == '\r' || line.back() == '\n' ||
+            line.back() == ' ' || line.back() == '\t')) {
+      line.pop_back();
+    }
+
     // Skip empty lines and comment lines
     if (line.empty() || line[0] == '#') {
       continue;
