@@ -14,6 +14,7 @@ SyslogDialog::SyslogDialog()
       stop_button_("Stop"),
       clear_button_("Clear"),
       export_button_("Export"),
+      import_button_("Import"),
       enable_logging_check_("Log to file"),
       log_file_label_("Log file:"),
       log_file_browse_button_("Browse..."),
@@ -49,6 +50,7 @@ SyslogDialog::SyslogDialog()
   controls_box_.pack_start(stop_button_, Gtk::PACK_SHRINK);
   controls_box_.pack_start(clear_button_, Gtk::PACK_SHRINK);
   controls_box_.pack_start(export_button_, Gtk::PACK_SHRINK);
+  controls_box_.pack_start(import_button_, Gtk::PACK_SHRINK);
   controls_box_.pack_start(status_label_, Gtk::PACK_EXPAND_WIDGET);
 
   // Set up logging box
@@ -130,6 +132,8 @@ SyslogDialog::SyslogDialog()
       sigc::mem_fun(*this, &SyslogDialog::on_clear_clicked));
   export_button_.signal_clicked().connect(
       sigc::mem_fun(*this, &SyslogDialog::on_export_clicked));
+  import_button_.signal_clicked().connect(
+      sigc::mem_fun(*this, &SyslogDialog::on_import_clicked));
 
   filter_entry_.signal_changed().connect(
       sigc::mem_fun(*this, &SyslogDialog::on_filter_changed));
@@ -277,6 +281,124 @@ void SyslogDialog::on_export_clicked() {
     }
     export_to_file(filename);
   }
+}
+
+void SyslogDialog::on_import_clicked() {
+  Gtk::FileChooserDialog dialog("Import Syslog File",
+                                Gtk::FILE_CHOOSER_ACTION_OPEN);
+  dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+  dialog.add_button("Open", Gtk::RESPONSE_OK);
+
+  auto filter_log = Gtk::FileFilter::create();
+  filter_log->set_name("Log files");
+  filter_log->add_pattern("*.log");
+  dialog.add_filter(filter_log);
+
+  auto filter_csv = Gtk::FileFilter::create();
+  filter_csv->set_name("CSV files");
+  filter_csv->add_pattern("*.csv");
+  dialog.add_filter(filter_csv);
+
+  auto filter_text = Gtk::FileFilter::create();
+  filter_text->set_name("Text files");
+  filter_text->add_pattern("*.txt");
+  dialog.add_filter(filter_text);
+
+  auto filter_all = Gtk::FileFilter::create();
+  filter_all->set_name("All files");
+  filter_all->add_pattern("*");
+  dialog.add_filter(filter_all);
+
+  int result = dialog.run();
+
+  if (result == Gtk::RESPONSE_OK) {
+    import_from_file(dialog.get_filename());
+  }
+}
+
+void SyslogDialog::import_from_file(const std::string& filename) {
+  std::ifstream file(filename);
+  if (!file) {
+    Gtk::MessageDialog dialog("Error opening file: " + filename, false,
+                              Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+    dialog.run();
+    return;
+  }
+
+  int imported_count = 0;
+  std::string line;
+
+  while (std::getline(file, line)) {
+    // Skip empty lines and comment lines
+    if (line.empty() || line[0] == '#') {
+      continue;
+    }
+
+    // Skip CSV header
+    if (line.find("Timestamp,Severity,Facility,Source IP,Hostname,Application,Message") != std::string::npos) {
+      continue;
+    }
+
+    SyslogMessage msg;
+
+    // Detect format: pipe-delimited log format has '|' separators
+    if (line.find('|') != std::string::npos) {
+      msg = SyslogMessage::parse_log_line(line);
+    } else if (line.find(',') != std::string::npos && line[0] >= '0' &&
+               line[0] <= '9') {
+      // CSV format: convert commas to pipes and parse
+      // CSV: Timestamp,Severity,Facility,Source IP,Hostname,Application,"Message"
+      // Handle quoted message field
+      std::string converted;
+      int field_count = 0;
+      bool in_quotes = false;
+      for (size_t i = 0; i < line.size(); i++) {
+        char c = line[i];
+        if (c == '"') {
+          in_quotes = !in_quotes;
+        } else if (c == ',' && !in_quotes && field_count < 6) {
+          converted += '|';
+          field_count++;
+        } else {
+          converted += c;
+        }
+      }
+      msg = SyslogMessage::parse_log_line(converted);
+    } else {
+      // Raw syslog format - parse with SyslogMessage::parse
+      msg = SyslogMessage::parse(line, "imported");
+    }
+
+    // Add to storage
+    {
+      std::lock_guard<std::mutex> lock(messages_mutex_);
+      messages_.push_back(msg);
+    }
+
+    // Add to tree view
+    auto row = *(tree_model_->append());
+    row[columns_.timestamp] = msg.timestamp_string();
+    row[columns_.severity] = msg.severity_string();
+    row[columns_.facility] = msg.facility_string();
+    row[columns_.source_ip] = msg.source_ip;
+    row[columns_.hostname] = msg.hostname;
+    row[columns_.application] = msg.application;
+    row[columns_.message] = msg.message;
+    row[columns_.severity_enum] = static_cast<int>(msg.severity);
+
+    imported_count++;
+  }
+
+  // Scroll to bottom after import
+  auto adj = scrolled_window_.get_vadjustment();
+  adj->set_value(adj->get_upper() - adj->get_page_size());
+
+  update_status();
+
+  Gtk::MessageDialog dialog(
+      "Imported " + std::to_string(imported_count) + " messages from file.",
+      false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true);
+  dialog.run();
 }
 
 void SyslogDialog::on_filter_changed() {

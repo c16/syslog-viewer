@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <regex>
 #include <sstream>
+#include <vector>
 
 std::string SyslogMessage::severity_string() const {
   switch (severity) {
@@ -86,6 +87,98 @@ std::string SyslogMessage::timestamp_string() const {
 
 int SyslogMessage::priority() const {
   return static_cast<int>(facility) * 8 + static_cast<int>(severity);
+}
+
+SyslogSeverity SyslogMessage::parse_severity(const std::string& str) {
+  if (str == "EMERG") return SyslogSeverity::EMERGENCY;
+  if (str == "ALERT") return SyslogSeverity::ALERT;
+  if (str == "CRIT") return SyslogSeverity::CRITICAL;
+  if (str == "ERROR") return SyslogSeverity::ERROR;
+  if (str == "WARN") return SyslogSeverity::WARNING;
+  if (str == "NOTICE") return SyslogSeverity::NOTICE;
+  if (str == "INFO") return SyslogSeverity::INFO;
+  if (str == "DEBUG") return SyslogSeverity::DEBUG;
+  return SyslogSeverity::INFO;
+}
+
+SyslogFacility SyslogMessage::parse_facility(const std::string& str) {
+  if (str == "kern") return SyslogFacility::KERN;
+  if (str == "user") return SyslogFacility::USER;
+  if (str == "mail") return SyslogFacility::MAIL;
+  if (str == "daemon") return SyslogFacility::DAEMON;
+  if (str == "auth") return SyslogFacility::AUTH;
+  if (str == "syslog") return SyslogFacility::SYSLOG;
+  if (str == "lpr") return SyslogFacility::LPR;
+  if (str == "news") return SyslogFacility::NEWS;
+  if (str == "uucp") return SyslogFacility::UUCP;
+  if (str == "cron") return SyslogFacility::CRON;
+  if (str == "authpriv") return SyslogFacility::AUTHPRIV;
+  if (str == "ftp") return SyslogFacility::FTP;
+  if (str == "local0") return SyslogFacility::LOCAL0;
+  if (str == "local1") return SyslogFacility::LOCAL1;
+  if (str == "local2") return SyslogFacility::LOCAL2;
+  if (str == "local3") return SyslogFacility::LOCAL3;
+  if (str == "local4") return SyslogFacility::LOCAL4;
+  if (str == "local5") return SyslogFacility::LOCAL5;
+  if (str == "local6") return SyslogFacility::LOCAL6;
+  if (str == "local7") return SyslogFacility::LOCAL7;
+  return SyslogFacility::USER;
+}
+
+std::chrono::system_clock::time_point SyslogMessage::parse_timestamp(
+    const std::string& str) {
+  std::tm tm_val{};
+  std::istringstream ss(str);
+  ss >> std::get_time(&tm_val, "%Y-%m-%d %H:%M:%S");
+  if (ss.fail()) {
+    return std::chrono::system_clock::now();
+  }
+  tm_val.tm_isdst = -1;
+  std::time_t time = std::mktime(&tm_val);
+  return std::chrono::system_clock::from_time_t(time);
+}
+
+SyslogMessage SyslogMessage::parse_log_line(const std::string& line) {
+  SyslogMessage msg;
+  msg.timestamp = std::chrono::system_clock::now();
+  msg.severity = SyslogSeverity::INFO;
+  msg.facility = SyslogFacility::USER;
+
+  // Expected format: Timestamp|Severity|Facility|Source IP|Hostname|Application|Message
+  std::vector<std::string> fields;
+  std::string field;
+  std::istringstream stream(line);
+
+  // Split on '|' but limit to 7 fields (message may contain '|')
+  int count = 0;
+  while (count < 6 && std::getline(stream, field, '|')) {
+    fields.push_back(field);
+    count++;
+  }
+  // Rest of the line is the message (may contain '|')
+  if (std::getline(stream, field)) {
+    // Read the rest of the stream since message may contain '|'
+    std::string rest;
+    while (std::getline(stream, rest, '|')) {
+      field += "|" + rest;
+    }
+    fields.push_back(field);
+  }
+
+  if (fields.size() >= 7) {
+    msg.timestamp = parse_timestamp(fields[0]);
+    msg.severity = parse_severity(fields[1]);
+    msg.facility = parse_facility(fields[2]);
+    msg.source_ip = fields[3];
+    msg.hostname = fields[4];
+    msg.application = fields[5];
+    msg.message = fields[6];
+  } else {
+    // Not enough fields, treat as plain message
+    msg.message = line;
+  }
+
+  return msg;
 }
 
 SyslogMessage SyslogMessage::parse(const std::string& raw_message,

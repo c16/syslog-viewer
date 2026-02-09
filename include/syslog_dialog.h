@@ -31,6 +31,9 @@ class SyslogDialog : public Gtk::Box {
   // Export messages
   void export_to_file(const std::string& filename);
 
+  // Import messages from file
+  void import_from_file(const std::string& filename);
+
   // File logging
   void enable_file_logging(bool enabled);
   bool is_file_logging_enabled() const;
@@ -50,6 +53,7 @@ class SyslogDialog : public Gtk::Box {
   Gtk::Button stop_button_;
   Gtk::Button clear_button_;
   Gtk::Button export_button_;
+  Gtk::Button import_button_;
 
   Gtk::CheckButton enable_logging_check_;
   Gtk::Label log_file_label_;
@@ -112,6 +116,7 @@ class SyslogDialog : public Gtk::Box {
   void on_stop_clicked();
   void on_clear_clicked();
   void on_export_clicked();
+  void on_import_clicked();
   void on_filter_changed();
   void on_logging_toggled();
   void on_log_file_browse_clicked();

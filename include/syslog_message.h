@@ -64,6 +64,19 @@ struct SyslogMessage {
 
   // Get priority value
   int priority() const;
+
+  // Parse a pipe-delimited log line (Timestamp|Severity|Facility|Source IP|Hostname|Application|Message)
+  static SyslogMessage parse_log_line(const std::string& line);
+
+  // Parse severity string to enum
+  static SyslogSeverity parse_severity(const std::string& str);
+
+  // Parse facility string to enum
+  static SyslogFacility parse_facility(const std::string& str);
+
+  // Parse a timestamp string (YYYY-MM-DD HH:MM:SS) to time_point
+  static std::chrono::system_clock::time_point parse_timestamp(
+      const std::string& str);
 };
 
 #endif  // SYSLOG_MESSAGE_H
