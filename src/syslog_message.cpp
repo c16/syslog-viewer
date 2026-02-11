@@ -142,8 +142,24 @@ SyslogFacility SyslogMessage::parse_facility(const std::string& str) {
 
 std::chrono::system_clock::time_point SyslogMessage::parse_timestamp(
     const std::string& str) {
+  // Normalize the timestamp: replace 'T' with space, strip fractional
+  // seconds and timezone offset so we can parse as "%Y-%m-%d %H:%M:%S"
+  std::string normalized = str;
+
+  // Replace 'T' separator with space (ISO 8601)
+  auto t_pos = normalized.find('T');
+  if (t_pos != std::string::npos && t_pos == 10) {
+    normalized[t_pos] = ' ';
+  }
+
+  // Strip fractional seconds (.123456) and timezone (+00:00 or Z)
+  // After "YYYY-MM-DD HH:MM:SS" (19 chars), truncate
+  if (normalized.size() > 19) {
+    normalized = normalized.substr(0, 19);
+  }
+
   std::tm tm_val{};
-  std::istringstream ss(str);
+  std::istringstream ss(normalized);
   ss >> std::get_time(&tm_val, "%Y-%m-%d %H:%M:%S");
   if (ss.fail()) {
     return std::chrono::system_clock::now();
@@ -202,31 +218,41 @@ SyslogMessage SyslogMessage::parse_dash_log_line(const std::string& line) {
   msg.severity = SyslogSeverity::INFO;
   msg.facility = SyslogFacility::USER;
 
-  // Expected format: "YYYY-MM-DD HH:MM:SS hostname app - - - SEVERITY [message]"
-  // The " - - - " marker separates header fields from severity/message
+  // Expected format: "TIMESTAMP hostname app - - - SEVERITY [message]"
+  // Timestamp can be "YYYY-MM-DD HH:MM:SS" or ISO 8601 "YYYY-MM-DDTHH:MM:SS.ffffff+00:00"
   auto marker_pos = line.find(" - - - ");
   if (marker_pos == std::string::npos) {
     msg.message = line;
     return msg;
   }
 
-  // Parse the part before " - - - ": "timestamp hostname app"
+  // Parse the part before " - - - " by splitting on spaces
   std::string before = line.substr(0, marker_pos);
+  std::vector<std::string> tokens;
+  std::istringstream bstream(before);
+  std::string token;
+  while (bstream >> token) {
+    tokens.push_back(token);
+  }
 
-  // Timestamp is "YYYY-MM-DD HH:MM:SS" (19 chars)
-  if (before.size() >= 19) {
-    msg.timestamp = parse_timestamp(before.substr(0, 19));
-
-    // After the timestamp: "hostname app"
-    if (before.size() > 20) {
-      std::string after_ts = before.substr(20);
-      auto space_pos = after_ts.find(' ');
-      if (space_pos != std::string::npos) {
-        msg.hostname = after_ts.substr(0, space_pos);
-        msg.application = after_ts.substr(space_pos + 1);
-      } else {
-        msg.hostname = after_ts;
-      }
+  if (!tokens.empty()) {
+    // Determine if first token is ISO 8601 with 'T' (single-token timestamp)
+    // or old format where date and time are separate tokens
+    if (tokens[0].find('T') != std::string::npos && tokens[0].size() > 10) {
+      // ISO 8601: "2026-01-15T14:33:02.756342+00:00 hostname app"
+      msg.timestamp = parse_timestamp(tokens[0]);
+      if (tokens.size() > 1) msg.hostname = tokens[1];
+      if (tokens.size() > 2) msg.application = tokens[2];
+    } else if (tokens.size() >= 2 && tokens[1].find(':') != std::string::npos) {
+      // Space-separated: "2026-01-15 14:33:02 hostname app"
+      msg.timestamp = parse_timestamp(tokens[0] + " " + tokens[1]);
+      if (tokens.size() > 2) msg.hostname = tokens[2];
+      if (tokens.size() > 3) msg.application = tokens[3];
+    } else {
+      // Unknown timestamp format, treat first token as timestamp
+      msg.timestamp = parse_timestamp(tokens[0]);
+      if (tokens.size() > 1) msg.hostname = tokens[1];
+      if (tokens.size() > 2) msg.application = tokens[2];
     }
   }
 

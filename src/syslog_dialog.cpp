@@ -487,7 +487,7 @@ void SyslogDialog::on_message_dispatch() {
 
 bool SyslogDialog::filter_func(const Gtk::TreeModel::const_iterator& iter) {
   // Text filter
-  std::string filter_text = filter_entry_.get_text();
+  Glib::ustring filter_text = Glib::ustring(filter_entry_.get_text()).lowercase();
   if (!filter_text.empty()) {
     Glib::ustring message = (*iter)[columns_.message];
     Glib::ustring hostname = (*iter)[columns_.hostname];
