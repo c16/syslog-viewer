@@ -3,6 +3,7 @@
 
 #include <gtkmm.h>
 
+#include <deque>
 #include <fstream>
 #include <memory>
 #include <mutex>
@@ -134,7 +135,7 @@ class SyslogDialog : public Gtk::Box {
 
   // Dispatcher for thread-safe UI updates
   Glib::Dispatcher message_dispatcher_;
-  SyslogMessage pending_message_;
+  std::deque<SyslogMessage> pending_messages_;
   std::mutex pending_mutex_;
 
   // File logging

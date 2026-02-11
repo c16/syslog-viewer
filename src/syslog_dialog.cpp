@@ -430,28 +430,22 @@ void SyslogDialog::on_message_received(const SyslogMessage& msg) {
 
   {
     std::lock_guard<std::mutex> lock(pending_mutex_);
-    pending_message_ = msg;
+    pending_messages_.push_back(msg);
   }
 
   message_dispatcher_.emit();
 }
 
 void SyslogDialog::add_message_to_view(const SyslogMessage& msg) {
-  SyslogMessage local_msg;
-  {
-    std::lock_guard<std::mutex> lock(pending_mutex_);
-    local_msg = pending_message_;
-  }
-
   auto row = *(tree_model_->append());
-  row[columns_.timestamp] = local_msg.timestamp_string();
-  row[columns_.severity] = local_msg.severity_string();
-  row[columns_.facility] = local_msg.facility_string();
-  row[columns_.source_ip] = local_msg.source_ip;
-  row[columns_.hostname] = local_msg.hostname;
-  row[columns_.application] = local_msg.application;
-  row[columns_.message] = local_msg.message;
-  row[columns_.severity_enum] = static_cast<int>(local_msg.severity);
+  row[columns_.timestamp] = msg.timestamp_string();
+  row[columns_.severity] = msg.severity_string();
+  row[columns_.facility] = msg.facility_string();
+  row[columns_.source_ip] = msg.source_ip;
+  row[columns_.hostname] = msg.hostname;
+  row[columns_.application] = msg.application;
+  row[columns_.message] = msg.message;
+  row[columns_.severity_enum] = static_cast<int>(msg.severity);
 
   // Auto-scroll to new message
   auto adj = scrolled_window_.get_vadjustment();
@@ -461,28 +455,32 @@ void SyslogDialog::add_message_to_view(const SyslogMessage& msg) {
 }
 
 void SyslogDialog::on_message_dispatch() {
-  // Wrapper for dispatcher - reads from pending_message_
-  SyslogMessage local_msg;
+  // Drain all pending messages from the queue
+  std::deque<SyslogMessage> batch;
   {
     std::lock_guard<std::mutex> lock(pending_mutex_);
-    local_msg = pending_message_;
+    batch.swap(pending_messages_);
   }
 
-  auto row = *(tree_model_->append());
-  row[columns_.timestamp] = local_msg.timestamp_string();
-  row[columns_.severity] = local_msg.severity_string();
-  row[columns_.facility] = local_msg.facility_string();
-  row[columns_.source_ip] = local_msg.source_ip;
-  row[columns_.hostname] = local_msg.hostname;
-  row[columns_.application] = local_msg.application;
-  row[columns_.message] = local_msg.message;
-  row[columns_.severity_enum] = static_cast<int>(local_msg.severity);
+  for (const auto& local_msg : batch) {
+    auto row = *(tree_model_->append());
+    row[columns_.timestamp] = local_msg.timestamp_string();
+    row[columns_.severity] = local_msg.severity_string();
+    row[columns_.facility] = local_msg.facility_string();
+    row[columns_.source_ip] = local_msg.source_ip;
+    row[columns_.hostname] = local_msg.hostname;
+    row[columns_.application] = local_msg.application;
+    row[columns_.message] = local_msg.message;
+    row[columns_.severity_enum] = static_cast<int>(local_msg.severity);
+  }
 
-  // Auto-scroll to new message
-  auto adj = scrolled_window_.get_vadjustment();
-  adj->set_value(adj->get_upper() - adj->get_page_size());
+  if (!batch.empty()) {
+    // Auto-scroll to last new message
+    auto adj = scrolled_window_.get_vadjustment();
+    adj->set_value(adj->get_upper() - adj->get_page_size());
 
-  update_status();
+    update_status();
+  }
 }
 
 bool SyslogDialog::filter_func(const Gtk::TreeModel::const_iterator& iter) {
