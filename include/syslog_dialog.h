@@ -118,6 +118,7 @@ class SyslogDialog : public Gtk::Box {
   void on_clear_clicked();
   void on_export_clicked();
   void on_import_clicked();
+  void on_filter_text_changed();
   void on_filter_changed();
   void on_logging_toggled();
   void on_log_file_browse_clicked();

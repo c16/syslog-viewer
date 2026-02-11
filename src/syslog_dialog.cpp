@@ -136,7 +136,7 @@ SyslogDialog::SyslogDialog()
       sigc::mem_fun(*this, &SyslogDialog::on_import_clicked));
 
   filter_entry_.signal_changed().connect(
-      sigc::mem_fun(*this, &SyslogDialog::on_filter_changed));
+      sigc::mem_fun(*this, &SyslogDialog::on_filter_text_changed));
 
   emergency_check_.signal_toggled().connect(
       sigc::mem_fun(*this, &SyslogDialog::on_filter_changed));
@@ -238,6 +238,19 @@ void SyslogDialog::clear_messages() {
   update_status();
 }
 
+static std::string csv_escape(const std::string& field) {
+  if (field.find_first_of(",\"\n\r") == std::string::npos) {
+    return field;
+  }
+  std::string escaped = "\"";
+  for (char c : field) {
+    if (c == '"') escaped += "\"\"";
+    else escaped += c;
+  }
+  escaped += '"';
+  return escaped;
+}
+
 void SyslogDialog::export_to_file(const std::string& filename) {
   std::lock_guard<std::mutex> lock(messages_mutex_);
 
@@ -250,9 +263,13 @@ void SyslogDialog::export_to_file(const std::string& filename) {
       << "Timestamp,Severity,Facility,Source IP,Hostname,Application,Message\n";
 
   for (const auto& msg : messages_) {
-    file << msg.timestamp_string() << "," << msg.severity_string() << ","
-         << msg.facility_string() << "," << msg.source_ip << "," << msg.hostname
-         << "," << msg.application << "," << "\"" << msg.message << "\"\n";
+    file << csv_escape(msg.timestamp_string()) << ","
+         << csv_escape(msg.severity_string()) << ","
+         << csv_escape(msg.facility_string()) << ","
+         << csv_escape(msg.source_ip) << ","
+         << csv_escape(msg.hostname) << ","
+         << csv_escape(msg.application) << ","
+         << csv_escape(msg.message) << "\n";
   }
 }
 
@@ -410,6 +427,10 @@ void SyslogDialog::import_from_file(const std::string& filename) {
       "Imported " + std::to_string(imported_count) + " messages from file.",
       false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true);
   dialog.run();
+}
+
+void SyslogDialog::on_filter_text_changed() {
+  filtered_model_->refilter();
 }
 
 void SyslogDialog::on_filter_changed() {
