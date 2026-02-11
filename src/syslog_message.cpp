@@ -1,6 +1,7 @@
 #include "syslog_message.h"
 
 #include <algorithm>
+#include <cctype>
 #include <iomanip>
 #include <regex>
 #include <sstream>
@@ -99,7 +100,8 @@ SyslogSeverity SyslogMessage::parse_severity(const std::string& str) {
   while (!upper.empty() && (unsigned char)upper.front() <= ' ') {
     upper.erase(upper.begin());
   }
-  std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+  std::transform(upper.begin(), upper.end(), upper.begin(),
+                 [](unsigned char c) { return std::toupper(c); });
 
   if (upper == "EMERG" || upper == "EMERGENCY")
     return SyslogSeverity::EMERGENCY;
@@ -180,7 +182,7 @@ SyslogMessage SyslogMessage::parse_log_line(const std::string& line) {
   std::string field;
   std::istringstream stream(line);
 
-  // Split on '|' but limit to 7 fields (message may contain '|')
+  // Read first 6 pipe-delimited fields, then treat the remainder as message
   int count = 0;
   while (count < 6 && std::getline(stream, field, '|')) {
     fields.push_back(field);
@@ -188,11 +190,6 @@ SyslogMessage SyslogMessage::parse_log_line(const std::string& line) {
   }
   // Rest of the line is the message (may contain '|')
   if (std::getline(stream, field)) {
-    // Read the rest of the stream since message may contain '|'
-    std::string rest;
-    while (std::getline(stream, rest, '|')) {
-      field += "|" + rest;
-    }
     fields.push_back(field);
   }
 
