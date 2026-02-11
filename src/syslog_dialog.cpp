@@ -14,6 +14,7 @@ SyslogDialog::SyslogDialog()
       stop_button_("Stop"),
       clear_button_("Clear"),
       export_button_("Export"),
+      import_button_("Import"),
       enable_logging_check_("Log to file"),
       log_file_label_("Log file:"),
       log_file_browse_button_("Browse..."),
@@ -49,6 +50,7 @@ SyslogDialog::SyslogDialog()
   controls_box_.pack_start(stop_button_, Gtk::PACK_SHRINK);
   controls_box_.pack_start(clear_button_, Gtk::PACK_SHRINK);
   controls_box_.pack_start(export_button_, Gtk::PACK_SHRINK);
+  controls_box_.pack_start(import_button_, Gtk::PACK_SHRINK);
   controls_box_.pack_start(status_label_, Gtk::PACK_EXPAND_WIDGET);
 
   // Set up logging box
@@ -130,9 +132,11 @@ SyslogDialog::SyslogDialog()
       sigc::mem_fun(*this, &SyslogDialog::on_clear_clicked));
   export_button_.signal_clicked().connect(
       sigc::mem_fun(*this, &SyslogDialog::on_export_clicked));
+  import_button_.signal_clicked().connect(
+      sigc::mem_fun(*this, &SyslogDialog::on_import_clicked));
 
   filter_entry_.signal_changed().connect(
-      sigc::mem_fun(*this, &SyslogDialog::on_filter_changed));
+      sigc::mem_fun(*this, &SyslogDialog::on_filter_text_changed));
 
   emergency_check_.signal_toggled().connect(
       sigc::mem_fun(*this, &SyslogDialog::on_filter_changed));
@@ -234,6 +238,19 @@ void SyslogDialog::clear_messages() {
   update_status();
 }
 
+static std::string csv_escape(const std::string& field) {
+  if (field.find_first_of(",\"\n\r") == std::string::npos) {
+    return field;
+  }
+  std::string escaped = "\"";
+  for (char c : field) {
+    if (c == '"') escaped += "\"\"";
+    else escaped += c;
+  }
+  escaped += '"';
+  return escaped;
+}
+
 void SyslogDialog::export_to_file(const std::string& filename) {
   std::lock_guard<std::mutex> lock(messages_mutex_);
 
@@ -246,9 +263,13 @@ void SyslogDialog::export_to_file(const std::string& filename) {
       << "Timestamp,Severity,Facility,Source IP,Hostname,Application,Message\n";
 
   for (const auto& msg : messages_) {
-    file << msg.timestamp_string() << "," << msg.severity_string() << ","
-         << msg.facility_string() << "," << msg.source_ip << "," << msg.hostname
-         << "," << msg.application << "," << "\"" << msg.message << "\"\n";
+    file << csv_escape(msg.timestamp_string()) << ","
+         << csv_escape(msg.severity_string()) << ","
+         << csv_escape(msg.facility_string()) << ","
+         << csv_escape(msg.source_ip) << ","
+         << csv_escape(msg.hostname) << ","
+         << csv_escape(msg.application) << ","
+         << csv_escape(msg.message) << "\n";
   }
 }
 
@@ -279,6 +300,139 @@ void SyslogDialog::on_export_clicked() {
   }
 }
 
+void SyslogDialog::on_import_clicked() {
+  Gtk::FileChooserDialog dialog("Import Syslog File",
+                                Gtk::FILE_CHOOSER_ACTION_OPEN);
+  dialog.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+  dialog.add_button("Open", Gtk::RESPONSE_OK);
+
+  auto filter_log = Gtk::FileFilter::create();
+  filter_log->set_name("Log files");
+  filter_log->add_pattern("*.log");
+  dialog.add_filter(filter_log);
+
+  auto filter_csv = Gtk::FileFilter::create();
+  filter_csv->set_name("CSV files");
+  filter_csv->add_pattern("*.csv");
+  dialog.add_filter(filter_csv);
+
+  auto filter_text = Gtk::FileFilter::create();
+  filter_text->set_name("Text files");
+  filter_text->add_pattern("*.txt");
+  dialog.add_filter(filter_text);
+
+  auto filter_all = Gtk::FileFilter::create();
+  filter_all->set_name("All files");
+  filter_all->add_pattern("*");
+  dialog.add_filter(filter_all);
+
+  int result = dialog.run();
+
+  if (result == Gtk::RESPONSE_OK) {
+    import_from_file(dialog.get_filename());
+  }
+}
+
+void SyslogDialog::import_from_file(const std::string& filename) {
+  std::ifstream file(filename);
+  if (!file) {
+    Gtk::MessageDialog dialog("Error opening file: " + filename, false,
+                              Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+    dialog.run();
+    return;
+  }
+
+  int imported_count = 0;
+  std::string line;
+
+  while (std::getline(file, line)) {
+    // Strip trailing \r, \n, spaces, tabs (handles Windows line endings)
+    while (!line.empty() &&
+           (line.back() == '\r' || line.back() == '\n' ||
+            line.back() == ' ' || line.back() == '\t')) {
+      line.pop_back();
+    }
+
+    // Skip empty lines and comment lines
+    if (line.empty() || line[0] == '#') {
+      continue;
+    }
+
+    // Skip CSV header
+    if (line.find("Timestamp,Severity,Facility,Source IP,Hostname,Application,Message") != std::string::npos) {
+      continue;
+    }
+
+    SyslogMessage msg;
+
+    // Detect format by delimiter
+    if (line.find(" - - - ") != std::string::npos) {
+      // Dash-delimited format: "Timestamp hostname app - - - SEVERITY [message]"
+      msg = SyslogMessage::parse_dash_log_line(line);
+    } else if (line.find('|') != std::string::npos) {
+      // Pipe-delimited log format
+      msg = SyslogMessage::parse_log_line(line);
+    } else if (line.find(',') != std::string::npos && line[0] >= '0' &&
+               line[0] <= '9') {
+      // CSV format: convert commas to pipes and parse
+      // CSV: Timestamp,Severity,Facility,Source IP,Hostname,Application,"Message"
+      // Handle quoted message field
+      std::string converted;
+      int field_count = 0;
+      bool in_quotes = false;
+      for (size_t i = 0; i < line.size(); i++) {
+        char c = line[i];
+        if (c == '"') {
+          in_quotes = !in_quotes;
+        } else if (c == ',' && !in_quotes && field_count < 6) {
+          converted += '|';
+          field_count++;
+        } else {
+          converted += c;
+        }
+      }
+      msg = SyslogMessage::parse_log_line(converted);
+    } else {
+      // Raw syslog format - parse with SyslogMessage::parse
+      msg = SyslogMessage::parse(line, "imported");
+    }
+
+    // Add to storage
+    {
+      std::lock_guard<std::mutex> lock(messages_mutex_);
+      messages_.push_back(msg);
+    }
+
+    // Add to tree view
+    auto row = *(tree_model_->append());
+    row[columns_.timestamp] = msg.timestamp_string();
+    row[columns_.severity] = msg.severity_string();
+    row[columns_.facility] = msg.facility_string();
+    row[columns_.source_ip] = msg.source_ip;
+    row[columns_.hostname] = msg.hostname;
+    row[columns_.application] = msg.application;
+    row[columns_.message] = msg.message;
+    row[columns_.severity_enum] = static_cast<int>(msg.severity);
+
+    imported_count++;
+  }
+
+  // Scroll to bottom after import
+  auto adj = scrolled_window_.get_vadjustment();
+  adj->set_value(adj->get_upper() - adj->get_page_size());
+
+  update_status();
+
+  Gtk::MessageDialog dialog(
+      "Imported " + std::to_string(imported_count) + " messages from file.",
+      false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true);
+  dialog.run();
+}
+
+void SyslogDialog::on_filter_text_changed() {
+  filtered_model_->refilter();
+}
+
 void SyslogDialog::on_filter_changed() {
   filtered_model_->refilter();
   save_config();
@@ -297,28 +451,22 @@ void SyslogDialog::on_message_received(const SyslogMessage& msg) {
 
   {
     std::lock_guard<std::mutex> lock(pending_mutex_);
-    pending_message_ = msg;
+    pending_messages_.push_back(msg);
   }
 
   message_dispatcher_.emit();
 }
 
 void SyslogDialog::add_message_to_view(const SyslogMessage& msg) {
-  SyslogMessage local_msg;
-  {
-    std::lock_guard<std::mutex> lock(pending_mutex_);
-    local_msg = pending_message_;
-  }
-
   auto row = *(tree_model_->append());
-  row[columns_.timestamp] = local_msg.timestamp_string();
-  row[columns_.severity] = local_msg.severity_string();
-  row[columns_.facility] = local_msg.facility_string();
-  row[columns_.source_ip] = local_msg.source_ip;
-  row[columns_.hostname] = local_msg.hostname;
-  row[columns_.application] = local_msg.application;
-  row[columns_.message] = local_msg.message;
-  row[columns_.severity_enum] = static_cast<int>(local_msg.severity);
+  row[columns_.timestamp] = msg.timestamp_string();
+  row[columns_.severity] = msg.severity_string();
+  row[columns_.facility] = msg.facility_string();
+  row[columns_.source_ip] = msg.source_ip;
+  row[columns_.hostname] = msg.hostname;
+  row[columns_.application] = msg.application;
+  row[columns_.message] = msg.message;
+  row[columns_.severity_enum] = static_cast<int>(msg.severity);
 
   // Auto-scroll to new message
   auto adj = scrolled_window_.get_vadjustment();
@@ -328,33 +476,37 @@ void SyslogDialog::add_message_to_view(const SyslogMessage& msg) {
 }
 
 void SyslogDialog::on_message_dispatch() {
-  // Wrapper for dispatcher - reads from pending_message_
-  SyslogMessage local_msg;
+  // Drain all pending messages from the queue
+  std::deque<SyslogMessage> batch;
   {
     std::lock_guard<std::mutex> lock(pending_mutex_);
-    local_msg = pending_message_;
+    batch.swap(pending_messages_);
   }
 
-  auto row = *(tree_model_->append());
-  row[columns_.timestamp] = local_msg.timestamp_string();
-  row[columns_.severity] = local_msg.severity_string();
-  row[columns_.facility] = local_msg.facility_string();
-  row[columns_.source_ip] = local_msg.source_ip;
-  row[columns_.hostname] = local_msg.hostname;
-  row[columns_.application] = local_msg.application;
-  row[columns_.message] = local_msg.message;
-  row[columns_.severity_enum] = static_cast<int>(local_msg.severity);
+  for (const auto& local_msg : batch) {
+    auto row = *(tree_model_->append());
+    row[columns_.timestamp] = local_msg.timestamp_string();
+    row[columns_.severity] = local_msg.severity_string();
+    row[columns_.facility] = local_msg.facility_string();
+    row[columns_.source_ip] = local_msg.source_ip;
+    row[columns_.hostname] = local_msg.hostname;
+    row[columns_.application] = local_msg.application;
+    row[columns_.message] = local_msg.message;
+    row[columns_.severity_enum] = static_cast<int>(local_msg.severity);
+  }
 
-  // Auto-scroll to new message
-  auto adj = scrolled_window_.get_vadjustment();
-  adj->set_value(adj->get_upper() - adj->get_page_size());
+  if (!batch.empty()) {
+    // Auto-scroll to last new message
+    auto adj = scrolled_window_.get_vadjustment();
+    adj->set_value(adj->get_upper() - adj->get_page_size());
 
-  update_status();
+    update_status();
+  }
 }
 
 bool SyslogDialog::filter_func(const Gtk::TreeModel::const_iterator& iter) {
   // Text filter
-  std::string filter_text = filter_entry_.get_text();
+  Glib::ustring filter_text = Glib::ustring(filter_entry_.get_text()).lowercase();
   if (!filter_text.empty()) {
     Glib::ustring message = (*iter)[columns_.message];
     Glib::ustring hostname = (*iter)[columns_.hostname];

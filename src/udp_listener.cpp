@@ -47,6 +47,13 @@ void UdpListener::start(MessageCallback callback) {
     throw std::runtime_error("Failed to bind to port " + std::to_string(port_));
   }
 
+  // Query the actual bound port (needed when binding to port 0)
+  struct sockaddr_in bound_addr{};
+  socklen_t bound_len = sizeof(bound_addr);
+  if (getsockname(socket_fd_, (struct sockaddr*)&bound_addr, &bound_len) == 0) {
+    port_ = ntohs(bound_addr.sin_port);
+  }
+
   // Start listening thread
   running_ = true;
   thread_ = std::make_unique<std::thread>(&UdpListener::listen_thread, this);

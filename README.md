@@ -11,7 +11,7 @@ A GTKmm-based application for displaying and filtering incoming syslog UDP messa
 - **Live Message Display**: Shows incoming messages in a sortable, resizable table view
 
 ### Filtering Capabilities
-- **Text Search**: Filter messages by content, hostname, or application name
+- **Text Search**: Case-insensitive filter by content, hostname, or application name
 - **Severity Filtering**: Toggle visibility of messages by severity level:
   - EMERGENCY (0)
   - ALERT (1)
@@ -25,7 +25,8 @@ A GTKmm-based application for displaying and filtering incoming syslog UDP messa
 
 ### Additional Features
 - **Configurable Port**: Change the listening port (default: 514)
-- **Message Export**: Export messages to CSV format
+- **Message Export**: Export messages to RFC 4180-compliant CSV (proper quoting/escaping)
+- **Message Import**: Import syslog messages from files (dash-delimited, pipe-delimited, CSV, or raw syslog)
 - **File Logging**: Automatically log all incoming messages to a file in real-time
 - **Clear History**: Clear all messages with one click
 - **Auto-scroll**: Automatically scrolls to newest messages
@@ -56,6 +57,9 @@ syslog_viewer/
 │   ├── udp_listener.cpp     # UDP listener implementation
 │   ├── syslog_dialog.cpp    # UI implementation
 │   └── main.cpp             # Standalone application entry point
+├── tests/
+│   ├── syslog_message_test.cpp  # 41 unit tests for parsing
+│   └── udp_listener_test.cpp    # 10 unit tests for UDP reception
 └── CMakeLists.txt           # Build configuration
 ```
 
@@ -143,6 +147,26 @@ sudo ./build/syslog_viewer
 4. **Stop Listening**: Click "Stop" to stop receiving messages
 5. **Clear Messages**: Click "Clear" to remove all messages from view
 6. **Export**: Click "Export" to save messages to a CSV file
+7. **Import**: Click "Import" to load messages from a file
+
+### Importing Messages
+
+The application can import syslog messages from files in multiple formats:
+
+1. **Click "Import"** to open the file chooser dialog
+2. **Select a file** — supported formats are auto-detected:
+   - **Dash-delimited logs**: `Timestamp hostname app - - - SEVERITY message` (ISO 8601 timestamps like `2026-01-15T14:33:02.756342+00:00` are supported)
+   - **Pipe-delimited log files**: The app's own log format (`Timestamp|Severity|Facility|Source IP|Hostname|Application|Message`)
+   - **CSV files**: The app's own CSV export format, with quoted message fields
+   - **Raw syslog**: Standard RFC3164/RFC5424 syslog lines (one message per line)
+3. **Messages are added** to the existing view (they do not replace current messages)
+
+**Notes:**
+- Comment lines (starting with `#`) and empty lines are skipped automatically
+- CSV headers are detected and skipped
+- Imported raw syslog messages have their source IP set to "imported"
+- All imported messages are subject to current filter settings
+- A summary dialog shows how many messages were imported
 
 ### File Logging
 
@@ -236,6 +260,30 @@ target_link_libraries(my_app
 
 ## Testing
 
+### Unit Tests
+
+The project includes 51 unit tests using Google Test (fetched automatically via CMake FetchContent):
+
+```bash
+cd build
+cmake ..
+make -j$(nproc)
+
+# Run message parsing tests (41 tests)
+./syslog_message_test
+
+# Run UDP listener tests (10 tests)
+./udp_listener_test
+```
+
+Tests cover:
+- Severity/facility string conversions and roundtrips
+- Timestamp parsing (standard and ISO 8601 formats)
+- RFC3164 syslog parsing
+- Dash-delimited log parsing (with ISO 8601, case-insensitive severity, trailing whitespace)
+- Pipe-delimited log parsing (including messages containing pipes)
+- UDP listener lifecycle, ephemeral port binding, and message reception
+
 ### Send Test Messages
 
 **Using logger command:**
@@ -298,6 +346,7 @@ int get_port() const;
 // Message management
 void clear_messages();
 void export_to_file(const std::string& filename);
+void import_from_file(const std::string& filename);
 
 // File logging
 void enable_file_logging(bool enabled);
@@ -335,6 +384,26 @@ void set_port(int port);  // Only when stopped
 - `process_id`: Process ID (if available)
 - `message`: Message content
 - `source_ip`: Source IP address
+
+**Static Methods:**
+
+```cpp
+// Parse raw RFC3164/RFC5424 syslog message
+static SyslogMessage parse(const std::string& raw_message, const std::string& source_ip);
+
+// Parse pipe-delimited log line
+static SyslogMessage parse_log_line(const std::string& line);
+
+// Parse dash-delimited log line (Timestamp hostname app - - - SEVERITY message)
+static SyslogMessage parse_dash_log_line(const std::string& line);
+
+// Parse severity/facility strings back to enums (case-insensitive, trims whitespace)
+static SyslogSeverity parse_severity(const std::string& str);
+static SyslogFacility parse_facility(const std::string& str);
+
+// Parse timestamp string (YYYY-MM-DD HH:MM:SS or ISO 8601)
+static std::chrono::system_clock::time_point parse_timestamp(const std::string& str);
+```
 
 ## Troubleshooting
 
@@ -376,11 +445,12 @@ When file logging is enabled, messages are written in pipe-delimited format:
 ```
 
 ### CSV Export Format
-The export function creates CSV files with headers:
+The export function creates RFC 4180-compliant CSV files. Fields containing commas, double quotes, or newlines are properly quoted and escaped:
 
 ```csv
 Timestamp,Severity,Facility,Source IP,Hostname,Application,Message
 2026-01-11 15:30:45,INFO,user,192.168.1.100,webserver,nginx,GET /index.html 200
+2026-01-11 15:31:00,ERROR,daemon,10.0.0.1,host,app,"Message with ""quotes"" and, commas"
 ```
 
 ## Future Enhancements
