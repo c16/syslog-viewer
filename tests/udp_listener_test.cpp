@@ -37,13 +37,12 @@ TEST(UdpListener, InitiallyNotListening) {
 // --- Start/stop lifecycle ---
 
 TEST(UdpListener, StartAndStop) {
-  UdpListener listener(0);  // Port 0 won't bind, but let's use a high port
-  // Use a high ephemeral port to avoid permission issues
-  listener.set_port(19876);
+  UdpListener listener(0);
 
   bool received = false;
   listener.start([&](const SyslogMessage&) { received = true; });
   EXPECT_TRUE(listener.is_listening());
+  EXPECT_GT(listener.get_port(), 0);
 
   listener.stop();
   EXPECT_FALSE(listener.is_listening());
@@ -57,7 +56,7 @@ TEST(UdpListener, StopWhenNotListening) {
 }
 
 TEST(UdpListener, DoubleStartIgnored) {
-  UdpListener listener(19877);
+  UdpListener listener(0);
 
   listener.start([](const SyslogMessage&) {});
   EXPECT_TRUE(listener.is_listening());
@@ -70,11 +69,12 @@ TEST(UdpListener, DoubleStartIgnored) {
 }
 
 TEST(UdpListener, SetPortIgnoredWhileListening) {
-  UdpListener listener(19878);
+  UdpListener listener(0);
 
   listener.start([](const SyslogMessage&) {});
+  int bound_port = listener.get_port();
   listener.set_port(9999);
-  EXPECT_EQ(listener.get_port(), 19878);  // Should not change
+  EXPECT_EQ(listener.get_port(), bound_port);  // Should not change
 
   listener.stop();
 }
@@ -82,7 +82,7 @@ TEST(UdpListener, SetPortIgnoredWhileListening) {
 // --- Message reception ---
 
 TEST(UdpListener, ReceivesUdpMessage) {
-  UdpListener listener(19879);
+  UdpListener listener(0);
 
   std::mutex mtx;
   std::condition_variable cv;
@@ -96,13 +96,15 @@ TEST(UdpListener, ReceivesUdpMessage) {
     cv.notify_one();
   });
 
+  int bound_port = listener.get_port();
+
   // Send a UDP message to the listener
   int sock = socket(AF_INET, SOCK_DGRAM, 0);
   ASSERT_GE(sock, 0);
 
   struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
-  addr.sin_port = htons(19879);
+  addr.sin_port = htons(bound_port);
   inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
   std::string raw = "<134>Jan 11 10:30:00 testhost testapp[42]: Hello from test";
@@ -129,7 +131,7 @@ TEST(UdpListener, ReceivesUdpMessage) {
 }
 
 TEST(UdpListener, ReceivesMultipleMessages) {
-  UdpListener listener(19880);
+  UdpListener listener(0);
 
   std::mutex mtx;
   std::condition_variable cv;
@@ -141,12 +143,14 @@ TEST(UdpListener, ReceivesMultipleMessages) {
     cv.notify_one();
   });
 
+  int bound_port = listener.get_port();
+
   int sock = socket(AF_INET, SOCK_DGRAM, 0);
   ASSERT_GE(sock, 0);
 
   struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
-  addr.sin_port = htons(19880);
+  addr.sin_port = htons(bound_port);
   inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
   for (int i = 0; i < 5; i++) {
