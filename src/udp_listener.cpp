@@ -22,15 +22,17 @@ void UdpListener::start(MessageCallback callback) {
   callback_ = std::move(callback);
 
   // Create UDP socket
-  socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
-  if (socket_fd_ < 0) {
+  int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd < 0) {
     throw std::runtime_error("Failed to create socket");
   }
+  socket_fd_ = fd;
 
   // Set socket options to reuse address
   int opt = 1;
-  if (setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-    close(socket_fd_);
+  if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    close(fd);
+    socket_fd_ = -1;
     throw std::runtime_error("Failed to set socket options");
   }
 
@@ -40,17 +42,16 @@ void UdpListener::start(MessageCallback callback) {
   server_addr.sin_family = AF_INET;
   server_addr.sin_addr.s_addr = INADDR_ANY;
   server_addr.sin_port = htons(port_);
-
-  if (bind(socket_fd_, (struct sockaddr*)&server_addr, sizeof(server_addr)) <
-      0) {
-    close(socket_fd_);
+  if (::bind(fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+    close(fd);
+    socket_fd_ = -1;
     throw std::runtime_error("Failed to bind to port " + std::to_string(port_));
   }
 
   // Query the actual bound port (needed when binding to port 0)
   struct sockaddr_in bound_addr{};
   socklen_t bound_len = sizeof(bound_addr);
-  if (getsockname(socket_fd_, (struct sockaddr*)&bound_addr, &bound_len) == 0) {
+  if (getsockname(fd, (struct sockaddr*)&bound_addr, &bound_len) == 0) {
     port_ = ntohs(bound_addr.sin_port);
   }
 
@@ -66,18 +67,19 @@ void UdpListener::stop() {
 
   running_ = false;
 
-  // Close socket to unblock recvfrom
-  if (socket_fd_ >= 0) {
-    shutdown(socket_fd_, SHUT_RDWR);
-    close(socket_fd_);
-    socket_fd_ = -1;
+  // Shutdown socket to unblock recvfrom in listener thread
+  int fd = socket_fd_.load();
+  if (fd >= 0) {
+    shutdown(fd, SHUT_RDWR);
+    close(fd);
   }
 
-  // Wait for thread to finish
+  // Wait for thread to finish before clearing the fd
   if (thread_ && thread_->joinable()) {
     thread_->join();
   }
 
+  socket_fd_ = -1;
   thread_.reset();
 }
 
@@ -93,12 +95,14 @@ void UdpListener::set_port(int port) {
 
 void UdpListener::listen_thread() {
   char buffer[65536];
-  struct sockaddr_in client_addr{};
-  socklen_t client_len = sizeof(client_addr);
+  int fd = socket_fd_.load();
 
   while (running_) {
+    struct sockaddr_in client_addr{};
+    socklen_t client_len = sizeof(client_addr);
+
     ssize_t bytes_received =
-        recvfrom(socket_fd_, buffer, sizeof(buffer) - 1, 0,
+        recvfrom(fd, buffer, sizeof(buffer) - 1, 0,
                  (struct sockaddr*)&client_addr, &client_len);
 
     if (bytes_received < 0) {

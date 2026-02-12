@@ -35,7 +35,7 @@ class UdpListener {
   void listen_thread();
 
   int port_;
-  int socket_fd_;
+  std::atomic<int> socket_fd_;
   std::atomic<bool> running_;
   std::unique_ptr<std::thread> thread_;
   MessageCallback callback_;

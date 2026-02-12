@@ -119,26 +119,37 @@ SyslogSeverity SyslogMessage::parse_severity(const std::string& str) {
 }
 
 SyslogFacility SyslogMessage::parse_facility(const std::string& str) {
-  if (str == "kern") return SyslogFacility::KERN;
-  if (str == "user") return SyslogFacility::USER;
-  if (str == "mail") return SyslogFacility::MAIL;
-  if (str == "daemon") return SyslogFacility::DAEMON;
-  if (str == "auth") return SyslogFacility::AUTH;
-  if (str == "syslog") return SyslogFacility::SYSLOG;
-  if (str == "lpr") return SyslogFacility::LPR;
-  if (str == "news") return SyslogFacility::NEWS;
-  if (str == "uucp") return SyslogFacility::UUCP;
-  if (str == "cron") return SyslogFacility::CRON;
-  if (str == "authpriv") return SyslogFacility::AUTHPRIV;
-  if (str == "ftp") return SyslogFacility::FTP;
-  if (str == "local0") return SyslogFacility::LOCAL0;
-  if (str == "local1") return SyslogFacility::LOCAL1;
-  if (str == "local2") return SyslogFacility::LOCAL2;
-  if (str == "local3") return SyslogFacility::LOCAL3;
-  if (str == "local4") return SyslogFacility::LOCAL4;
-  if (str == "local5") return SyslogFacility::LOCAL5;
-  if (str == "local6") return SyslogFacility::LOCAL6;
-  if (str == "local7") return SyslogFacility::LOCAL7;
+  // Trim whitespace and control characters, then normalize to lowercase
+  std::string lower = str;
+  while (!lower.empty() && (unsigned char)lower.back() <= ' ') {
+    lower.pop_back();
+  }
+  while (!lower.empty() && (unsigned char)lower.front() <= ' ') {
+    lower.erase(lower.begin());
+  }
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  if (lower == "kern") return SyslogFacility::KERN;
+  if (lower == "user") return SyslogFacility::USER;
+  if (lower == "mail") return SyslogFacility::MAIL;
+  if (lower == "daemon") return SyslogFacility::DAEMON;
+  if (lower == "auth") return SyslogFacility::AUTH;
+  if (lower == "syslog") return SyslogFacility::SYSLOG;
+  if (lower == "lpr") return SyslogFacility::LPR;
+  if (lower == "news") return SyslogFacility::NEWS;
+  if (lower == "uucp") return SyslogFacility::UUCP;
+  if (lower == "cron") return SyslogFacility::CRON;
+  if (lower == "authpriv") return SyslogFacility::AUTHPRIV;
+  if (lower == "ftp") return SyslogFacility::FTP;
+  if (lower == "local0") return SyslogFacility::LOCAL0;
+  if (lower == "local1") return SyslogFacility::LOCAL1;
+  if (lower == "local2") return SyslogFacility::LOCAL2;
+  if (lower == "local3") return SyslogFacility::LOCAL3;
+  if (lower == "local4") return SyslogFacility::LOCAL4;
+  if (lower == "local5") return SyslogFacility::LOCAL5;
+  if (lower == "local6") return SyslogFacility::LOCAL6;
+  if (lower == "local7") return SyslogFacility::LOCAL7;
   return SyslogFacility::USER;
 }
 
@@ -281,7 +292,7 @@ SyslogMessage SyslogMessage::parse(const std::string& raw_message,
   }
 
   // Parse priority (RFC3164/RFC5424 format: <priority>...)
-  std::regex priority_regex(R"(^<(\d+)>(.*)$)");
+  static const std::regex priority_regex(R"(^<(\d+)>(.*)$)");
   std::smatch priority_match;
 
   std::string remaining = raw_message;
@@ -294,7 +305,7 @@ SyslogMessage SyslogMessage::parse(const std::string& raw_message,
   }
 
   // Try to parse RFC3164 format: MMM DD HH:MM:SS hostname tag: message
-  std::regex rfc3164_regex(
+  static const std::regex rfc3164_regex(
       R"(^([A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+(\S+?)(?:\[(\d+)\])?\s*:\s*(.*)$)");
   std::smatch rfc3164_match;
 
@@ -308,7 +319,7 @@ SyslogMessage SyslogMessage::parse(const std::string& raw_message,
     msg.message = rfc3164_match[5].str();
   } else {
     // Try to extract hostname and message from simple format
-    std::regex simple_regex(R"(^\s*(\S+)\s+(.*)$)");
+    static const std::regex simple_regex(R"(^\s*(\S+)\s+(.*)$)");
     std::smatch simple_match;
 
     if (std::regex_match(remaining, simple_match, simple_regex)) {

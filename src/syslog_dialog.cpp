@@ -404,15 +404,7 @@ void SyslogDialog::import_from_file(const std::string& filename) {
     }
 
     // Add to tree view
-    auto row = *(tree_model_->append());
-    row[columns_.timestamp] = msg.timestamp_string();
-    row[columns_.severity] = msg.severity_string();
-    row[columns_.facility] = msg.facility_string();
-    row[columns_.source_ip] = msg.source_ip;
-    row[columns_.hostname] = msg.hostname;
-    row[columns_.application] = msg.application;
-    row[columns_.message] = msg.message;
-    row[columns_.severity_enum] = static_cast<int>(msg.severity);
+    add_message_to_view(msg);
 
     imported_count++;
   }
@@ -467,12 +459,6 @@ void SyslogDialog::add_message_to_view(const SyslogMessage& msg) {
   row[columns_.application] = msg.application;
   row[columns_.message] = msg.message;
   row[columns_.severity_enum] = static_cast<int>(msg.severity);
-
-  // Auto-scroll to new message
-  auto adj = scrolled_window_.get_vadjustment();
-  adj->set_value(adj->get_upper() - adj->get_page_size());
-
-  update_status();
 }
 
 void SyslogDialog::on_message_dispatch() {
@@ -483,23 +469,13 @@ void SyslogDialog::on_message_dispatch() {
     batch.swap(pending_messages_);
   }
 
-  for (const auto& local_msg : batch) {
-    auto row = *(tree_model_->append());
-    row[columns_.timestamp] = local_msg.timestamp_string();
-    row[columns_.severity] = local_msg.severity_string();
-    row[columns_.facility] = local_msg.facility_string();
-    row[columns_.source_ip] = local_msg.source_ip;
-    row[columns_.hostname] = local_msg.hostname;
-    row[columns_.application] = local_msg.application;
-    row[columns_.message] = local_msg.message;
-    row[columns_.severity_enum] = static_cast<int>(local_msg.severity);
+  for (const auto& msg : batch) {
+    add_message_to_view(msg);
   }
 
   if (!batch.empty()) {
-    // Auto-scroll to last new message
     auto adj = scrolled_window_.get_vadjustment();
     adj->set_value(adj->get_upper() - adj->get_page_size());
-
     update_status();
   }
 }
