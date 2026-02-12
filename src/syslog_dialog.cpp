@@ -376,19 +376,34 @@ void SyslogDialog::import_from_file(const std::string& filename) {
                line[0] <= '9') {
       // CSV format: convert commas to pipes and parse
       // CSV: Timestamp,Severity,Facility,Source IP,Hostname,Application,"Message"
-      // Handle quoted message field
+      // Handle RFC 4180 quoting: "" inside quoted fields represents a literal "
       std::string converted;
       int field_count = 0;
       bool in_quotes = false;
       for (size_t i = 0; i < line.size(); i++) {
         char c = line[i];
-        if (c == '"') {
-          in_quotes = !in_quotes;
-        } else if (c == ',' && !in_quotes && field_count < 6) {
-          converted += '|';
-          field_count++;
+        if (in_quotes) {
+          if (c == '"') {
+            if (i + 1 < line.size() && line[i + 1] == '"') {
+              // Escaped quote ("") -> output single "
+              converted += '"';
+              i++;
+            } else {
+              // Closing quote
+              in_quotes = false;
+            }
+          } else {
+            converted += c;
+          }
         } else {
-          converted += c;
+          if (c == '"') {
+            in_quotes = true;
+          } else if (c == ',' && field_count < 6) {
+            converted += '|';
+            field_count++;
+          } else {
+            converted += c;
+          }
         }
       }
       msg = SyslogMessage::parse_log_line(converted);

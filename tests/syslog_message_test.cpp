@@ -196,13 +196,59 @@ TEST(ParseTimestamp, ValidTimestamp) {
 }
 
 TEST(ParseTimestamp, ISO8601WithFractionalAndTimezone) {
+  // +00:00 means UTC; verify using gmtime_r for timezone-independent check
   auto tp = SyslogMessage::parse_timestamp("2026-01-15T14:33:02.756342+00:00");
   auto time_t_val = std::chrono::system_clock::to_time_t(tp);
   std::tm tm_val{};
-  localtime_r(&time_t_val, &tm_val);
+  gmtime_r(&time_t_val, &tm_val);
 
   EXPECT_EQ(tm_val.tm_year, 126);  // 2026 - 1900
   EXPECT_EQ(tm_val.tm_mon, 0);     // January (0-indexed)
+  EXPECT_EQ(tm_val.tm_mday, 15);
+  EXPECT_EQ(tm_val.tm_hour, 14);
+  EXPECT_EQ(tm_val.tm_min, 33);
+  EXPECT_EQ(tm_val.tm_sec, 2);
+}
+
+TEST(ParseTimestamp, ISO8601WithPositiveOffset) {
+  // +05:30 means local is 5h30m ahead of UTC; 14:33:02+05:30 = 09:03:02 UTC
+  auto tp = SyslogMessage::parse_timestamp("2026-01-15T14:33:02.000000+05:30");
+  auto time_t_val = std::chrono::system_clock::to_time_t(tp);
+  std::tm tm_val{};
+  gmtime_r(&time_t_val, &tm_val);
+
+  EXPECT_EQ(tm_val.tm_year, 126);
+  EXPECT_EQ(tm_val.tm_mon, 0);
+  EXPECT_EQ(tm_val.tm_mday, 15);
+  EXPECT_EQ(tm_val.tm_hour, 9);
+  EXPECT_EQ(tm_val.tm_min, 3);
+  EXPECT_EQ(tm_val.tm_sec, 2);
+}
+
+TEST(ParseTimestamp, ISO8601WithNegativeOffset) {
+  // -05:00 means local is 5h behind UTC; 14:33:02-05:00 = 19:33:02 UTC
+  auto tp = SyslogMessage::parse_timestamp("2026-01-15T14:33:02.000000-05:00");
+  auto time_t_val = std::chrono::system_clock::to_time_t(tp);
+  std::tm tm_val{};
+  gmtime_r(&time_t_val, &tm_val);
+
+  EXPECT_EQ(tm_val.tm_year, 126);
+  EXPECT_EQ(tm_val.tm_mon, 0);
+  EXPECT_EQ(tm_val.tm_mday, 15);
+  EXPECT_EQ(tm_val.tm_hour, 19);
+  EXPECT_EQ(tm_val.tm_min, 33);
+  EXPECT_EQ(tm_val.tm_sec, 2);
+}
+
+TEST(ParseTimestamp, ISO8601WithZulu) {
+  // Z means UTC
+  auto tp = SyslogMessage::parse_timestamp("2026-01-15T14:33:02Z");
+  auto time_t_val = std::chrono::system_clock::to_time_t(tp);
+  std::tm tm_val{};
+  gmtime_r(&time_t_val, &tm_val);
+
+  EXPECT_EQ(tm_val.tm_year, 126);
+  EXPECT_EQ(tm_val.tm_mon, 0);
   EXPECT_EQ(tm_val.tm_mday, 15);
   EXPECT_EQ(tm_val.tm_hour, 14);
   EXPECT_EQ(tm_val.tm_min, 33);
@@ -418,7 +464,14 @@ TEST(ParseDashLogLine, ISO8601Timestamp) {
   EXPECT_EQ(msg.hostname, "buildroot");
   EXPECT_EQ(msg.application, "ssb-mk2");
   EXPECT_EQ(msg.message, "something failed");
-  EXPECT_EQ(msg.timestamp_string(), "2026-01-15 14:33:02");
+
+  // Verify UTC time directly (timestamp_string uses local time)
+  auto time_t_val = std::chrono::system_clock::to_time_t(msg.timestamp);
+  std::tm tm_val{};
+  gmtime_r(&time_t_val, &tm_val);
+  EXPECT_EQ(tm_val.tm_hour, 14);
+  EXPECT_EQ(tm_val.tm_min, 33);
+  EXPECT_EQ(tm_val.tm_sec, 2);
 }
 
 TEST(ParseDashLogLine, ISO8601TimestampNoMessage) {
@@ -429,6 +482,13 @@ TEST(ParseDashLogLine, ISO8601TimestampNoMessage) {
   EXPECT_EQ(msg.hostname, "buildroot");
   EXPECT_EQ(msg.application, "ssb-mk2");
   EXPECT_TRUE(msg.message.empty());
+
+  // Verify UTC time directly
+  auto time_t_val = std::chrono::system_clock::to_time_t(msg.timestamp);
+  std::tm tm_val{};
+  gmtime_r(&time_t_val, &tm_val);
+  EXPECT_EQ(tm_val.tm_hour, 14);
+  EXPECT_EQ(tm_val.tm_min, 33);
 }
 
 TEST(ParseDashLogLine, NoDashDelimiter) {

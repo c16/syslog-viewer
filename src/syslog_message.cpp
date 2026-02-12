@@ -155,8 +155,8 @@ SyslogFacility SyslogMessage::parse_facility(const std::string& str) {
 
 std::chrono::system_clock::time_point SyslogMessage::parse_timestamp(
     const std::string& str) {
-  // Normalize the timestamp: replace 'T' with space, strip fractional
-  // seconds and timezone offset so we can parse as "%Y-%m-%d %H:%M:%S"
+  // Normalize the timestamp: replace 'T' with space, parse timezone offset,
+  // strip fractional seconds so we can parse as "%Y-%m-%d %H:%M:%S"
   std::string normalized = str;
 
   // Replace 'T' separator with space (ISO 8601)
@@ -165,9 +165,46 @@ std::chrono::system_clock::time_point SyslogMessage::parse_timestamp(
     normalized[t_pos] = ' ';
   }
 
-  // Strip fractional seconds (.123456) and timezone (+00:00 or Z)
-  // After "YYYY-MM-DD HH:MM:SS" (19 chars), truncate
+  // Parse timezone offset before truncating (e.g., +00:00, -05:00, Z)
+  int tz_offset_seconds = 0;
+  bool has_tz_offset = false;
+
   if (normalized.size() > 19) {
+    std::string suffix = normalized.substr(19);
+    // Skip fractional seconds (e.g., .756342) to find timezone indicator
+    size_t tz_start = 0;
+    if (!suffix.empty() && suffix[0] == '.') {
+      tz_start = suffix.find_first_of("+-Z", 1);
+      if (tz_start == std::string::npos) {
+        tz_start = suffix.size();
+      }
+    }
+
+    if (tz_start < suffix.size()) {
+      char tz_char = suffix[tz_start];
+      if (tz_char == 'Z') {
+        has_tz_offset = true;
+        tz_offset_seconds = 0;
+      } else if (tz_char == '+' || tz_char == '-') {
+        has_tz_offset = true;
+        std::string tz_str = suffix.substr(tz_start + 1);
+        int hours = 0, minutes = 0;
+        if (tz_str.size() >= 5 && tz_str[2] == ':') {
+          hours = std::stoi(tz_str.substr(0, 2));
+          minutes = std::stoi(tz_str.substr(3, 2));
+        } else if (tz_str.size() >= 4) {
+          hours = std::stoi(tz_str.substr(0, 2));
+          minutes = std::stoi(tz_str.substr(2, 2));
+        } else if (tz_str.size() >= 2) {
+          hours = std::stoi(tz_str.substr(0, 2));
+        }
+        tz_offset_seconds = hours * 3600 + minutes * 60;
+        if (tz_char == '-') {
+          tz_offset_seconds = -tz_offset_seconds;
+        }
+      }
+    }
+
     normalized = normalized.substr(0, 19);
   }
 
@@ -177,8 +214,18 @@ std::chrono::system_clock::time_point SyslogMessage::parse_timestamp(
   if (ss.fail()) {
     return std::chrono::system_clock::now();
   }
-  tm_val.tm_isdst = -1;
-  std::time_t time = std::mktime(&tm_val);
+
+  std::time_t time;
+  if (has_tz_offset) {
+    // Interpret as UTC and adjust for the timezone offset
+    time = timegm(&tm_val);
+    time -= tz_offset_seconds;
+  } else {
+    // No timezone info, interpret as local time
+    tm_val.tm_isdst = -1;
+    time = std::mktime(&tm_val);
+  }
+
   return std::chrono::system_clock::from_time_t(time);
 }
 
